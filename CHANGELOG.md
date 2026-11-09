@@ -10,6 +10,15 @@ full benchmark tables in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions before 0.1.0 belong to the
 upstream repositories (StillDeadcode/vllm-radiance, ggz14/radiance-vllm-mxfp4).
 
+## [Unreleased]
+
+### Added
+- **KV-cache disk mode: the RAM tier now evicts by ARC (Adaptive Replacement Cache), not LRU.** `kv-cache/disk_tier_config.json` sets `eviction_policy: "arc"` on the CPU primary tier, so a prefix hit twice (a system prompt, a document head) is promoted to the frequent set and survives a sweep of one-off blocks, whereas LRU walks the whole tier out on one pass of new material. This is a vLLM-native policy (0.32.0 ships it at `cpu/policies/arc.py`, read from `kv_connector_extra_config["eviction_policy"]`); the ghost lists are keys-only, so the cost is metadata, not tier capacity. Reversible via `eviction_policy: "lru"`. Disk mode is opt-in; the default start is unchanged. *Not measured yet:* the hit-rate gain under a scan workload is the live-validation gate (the ported `kvvalidate.py`/`kvwatch.py` below are the measurement tool); if ARC does not beat LRU on hit-share, the default reverts to `lru`.
+- **KV-cache effectiveness consumers: `kv-cache/tools/kvvalidate.py` and `kv-cache/tools/tierreport.py`** (ported from zzpanic's `qwen3.6-vllm-gfx1201-launchers`, adapted to the 0.32.0 metric surface). `kvvalidate.py` answers "is the cache working" — it names the regime (saturated / post-boot / mid-fill, so a cold engine is not misread as dead), runs the five invariants (lookup partition, reason sub-partition, CPU-vs-external reconciliation, promotion refusals, plus the two on-disk checks), and shows where prompt tokens came from. `tierreport.py` answers "is my tier the right size" — the sizing verdict (occupancy distribution, reads-before-evict, eviction-to-reuse) and the layered-cache value. Both are read-only, stdlib-only, and run against a live `/metrics` or a saved snapshot. The 0.32.0 surface dropped the token-granularity hit counter (P1 is now the native chunk-granularity `kv_offload_tiering_chunk_hits`), so the token-based hit figures degrade to `UNKNOWN`/`n/a` rather than reporting a false value; the load-bytes, lookup, promotion, capacity and regime figures are unaffected. *Not measured:* the tools' live output is the validation gate; a synthetic 0.32.0 fixture (`kv-cache/tools/fixture-metrics-032.txt`) verifies the parsing offline.
+
+### Changed
+- **KV-cache: the `kvvalidate.py`/`kvwatch.py` consumers read the 0.32.0 prompt-token metric names.** The engine's prompt-token counters moved from `prompt_tokens_by_source_total`/`prompt_tokens_total` to `prompt_tokens_by_source`/`prompt_tokens` (no `_total` suffix) between 0.27.1 and 0.32.0; the consumers now map to the native names, so the prompt-source breakdown (local_compute / local_cache_hit / external_kv_transfer) reads correctly on the current pin.
+
 ## [1.11.0] - 2026-11-09
 
 ### Added
