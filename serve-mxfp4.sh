@@ -1028,6 +1028,10 @@ case "$KVCACHE" in
       -e RADIANCE_SWA_EAGLE_REPLAY_TAIL=1 \
       -e RADIANCE_OFFLOAD_BOUNDARY_TRACE="${RADIANCE_OFFLOAD_BOUNDARY_TRACE:-0}")
     KVCACHE_TIER=(--kv-offloading-size "$KVCACHE_RAM_GIB" --kv-offloading-backend native)
+    # KVCACHE_EVICT_POLICY (default lru) sets the RAM-tier eviction policy; disk_tier_config.json is
+    # the baseline. ram mode drops the fs secondary tier (no disk); disk mode keeps it. Both modes
+    # carry the same --kv-offloading-backend native + --kv-transfer-config pair disk mode always used.
+    KVCACHE_TIER+=(--kv-transfer-config "$(python3 -c "import json,os;c=json.load(open('$PATCHES_DIR/kv-cache/disk_tier_config.json'));ec=c['kv_connector_extra_config'];ec['eviction_policy']=os.environ.get('KVCACHE_EVICT_POLICY','lru');ec.pop('secondary_tiers',None) if '$KVCACHE'=='ram' else None;print(json.dumps(c))")")
     # vLLM leaves its RAM tier behind in /dev/shm when the container stops, and the next boot
     # then cannot fit its own. Remove regions no live process holds (fuser/lsof decide; with
     # neither available nothing is touched, so a second running server keeps its buffer).
@@ -1075,9 +1079,6 @@ case "$KVCACHE" in
       # One bind spec, not two words: `-v HOST CONTAINER` would make podman mount an anonymous
       # volume at HOST and then treat /kvcache as a positional argument.
       KVCACHE_MOUNT=(-v "$KVCACHE_DISK":/kvcache:z -e PYTHONHASHSEED=0)
-      # KVCACHE_EVICT_POLICY (default lru) overrides the JSON's eviction_policy; the JSON is the
-      # baseline, the env var is the operator knob (keeps every disk knob an env var).
-      KVCACHE_TIER+=(--kv-transfer-config "$(python3 -c "import json,os;c=json.load(open('$PATCHES_DIR/kv-cache/disk_tier_config.json'));c['kv_connector_extra_config']['eviction_policy']=os.environ.get('KVCACHE_EVICT_POLICY','lru');print(json.dumps(c))")")
       # the disk-tier fixes and their metrics, in the order they are validated in ci/test-disk-tier.sh
       # (the shared list drives both this prelude and the test's bring-up DISK_WARN_NAMES check).
       while read -r _dpf _dpn; do
