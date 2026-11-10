@@ -1075,7 +1075,9 @@ case "$KVCACHE" in
       # One bind spec, not two words: `-v HOST CONTAINER` would make podman mount an anonymous
       # volume at HOST and then treat /kvcache as a positional argument.
       KVCACHE_MOUNT=(-v "$KVCACHE_DISK":/kvcache:z -e PYTHONHASHSEED=0)
-      KVCACHE_TIER+=(--kv-transfer-config "$(cat "$PATCHES_DIR/kv-cache/disk_tier_config.json")")
+      # KVCACHE_EVICT_POLICY (default lru) overrides the JSON's eviction_policy; the JSON is the
+      # baseline, the env var is the operator knob (keeps every disk knob an env var).
+      KVCACHE_TIER+=(--kv-transfer-config "$(python3 -c "import json,os;c=json.load(open('$PATCHES_DIR/kv-cache/disk_tier_config.json'));c['kv_connector_extra_config']['eviction_policy']=os.environ.get('KVCACHE_EVICT_POLICY','lru');print(json.dumps(c))")")
       # the disk-tier fixes and their metrics, in the order they are validated in ci/test-disk-tier.sh
       # (the shared list drives both this prelude and the test's bring-up DISK_WARN_NAMES check).
       while read -r _dpf _dpn; do
